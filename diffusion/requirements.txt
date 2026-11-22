@@ -1,0 +1,16 @@
+# Separate environment from the EyeNeRF/nerfstudio env (keeps NeRF training and
+# diffusion from fighting over GPU memory and package versions).
+# Install CUDA builds of torch AND torchvision first, from the same index, e.g.:
+#   pip install torch==2.14.1 torchvision --index-url https://download.pytorch.org/whl/cu126
+# (On Windows, PyPI only has CPU wheels: if torchvision comes from PyPI it drags in a
+#  newer CPU-only torch. Verify with: python -c "import torch; print(torch.cuda.is_available())")
+torch
+torchvision
+diffusers>=0.30
+transformers
+accelerate
+safetensors
+pillow
+numpy
+scikit-image
+lpips
