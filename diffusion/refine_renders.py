@@ -71,6 +71,8 @@ def parse_args() -> argparse.Namespace:
                    help="[tile] Gaussian blur radius applied after resizing, before refinement. Stops the model "
                         "turning render noise into fake texture. Default: 0.5 * upscale factor; 0 disables.")
     # misc
+    p.add_argument("--stride", type=int, default=1,
+                   help="Only refine every Nth image (sorted by name) - for quick looks at long camera paths.")
     p.add_argument("--save-compare", action="store_true",
                    help="Also save side-by-side input|refined images to <output>/compare/.")
     p.add_argument("--cpu-offload", action="store_true",
@@ -177,7 +179,7 @@ def main() -> None:
     if device == "cpu":
         print("WARNING: CUDA not available, running on CPU (very slow).", file=sys.stderr)
 
-    files = list_images(args.input)
+    files = list_images(args.input)[:: max(1, args.stride)]
     args.output.mkdir(parents=True, exist_ok=True)
     if args.save_compare:
         (args.output / "compare").mkdir(exist_ok=True)

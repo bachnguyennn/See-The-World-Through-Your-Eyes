@@ -113,6 +113,9 @@ if ! python -c "import nerfstudio, torch; assert torch.__version__.startswith('2
 fi
 python -c "import torch; assert torch.cuda.is_available(), 'torch cannot see the GPU'; print('torch', torch.__version__, torch.version.cuda, torch.cuda.get_device_name(0))"
 
+# ns-render needs ffmpeg even for image output; install into the env (no sudo).
+command -v ffmpeg >/dev/null || { log "ffmpeg (conda-forge)"; conda install -y -q -c conda-forge ffmpeg; }
+
 # --- 5. tiny-cuda-nn -------------------------------------------------------------
 # The pinned commit builds its torch bindings with -std=c++14, but torch >= 2.1
 # headers require C++17, so clone it and patch the flag before building.
