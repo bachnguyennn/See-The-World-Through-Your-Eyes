@@ -1,0 +1,3 @@
+[submodule "eyenerf"]
+	path = eyenerf
+	url = https://github.com/bachnguyennn/eyenerf.git
