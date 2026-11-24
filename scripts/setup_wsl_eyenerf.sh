@@ -43,10 +43,12 @@ GPU_ARCH="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1 |
 echo "GPU compute capability: $GPU_ARCH"
 
 # --- 1. system packages -------------------------------------------------------
-log "System packages (sudo)"
-sudo apt-get update -y
-sudo apt-get install -y build-essential git wget curl unzip file ca-certificates libimage-exiftool-perl \
-                        libgl1 libglib2.0-0
+APT_PKGS=(build-essential git wget curl unzip file ca-certificates libimage-exiftool-perl libgl1 libglib2.0-0)
+if ! dpkg -s "${APT_PKGS[@]}" >/dev/null 2>&1; then
+  log "System packages (sudo)"
+  sudo apt-get update -y
+  sudo apt-get install -y "${APT_PKGS[@]}"
+fi
 exiftool -ver
 
 # --- 2. CUDA 12.1 toolkit (WSL repo: toolkit only, never the driver) ----------
@@ -90,14 +92,21 @@ export CUDA_HOME=$CUDA_HOME_DIR
 export PATH=$CUDA_HOME_DIR/bin:\$PATH
 export LD_LIBRARY_PATH=$CUDA_HOME_DIR/lib64:\${LD_LIBRARY_PATH:-}
 export TCNN_CUDA_ARCHITECTURES=$GPU_ARCH
+# WSL keeps the driver's libcuda.so in /usr/lib/wsl/lib, which the conda linker does not search.
+export LIBRARY_PATH=/usr/lib/wsl/lib:$CUDA_HOME_DIR/lib64/stubs:\${LIBRARY_PATH:-}
 EOF
+export LIBRARY_PATH="/usr/lib/wsl/lib:$CUDA_HOME_DIR/lib64/stubs:${LIBRARY_PATH:-}"
 
 # --- 4. pinned pip packages from eyenerf/environment.yml ----------------------
 if ! python -c "import nerfstudio, torch; assert torch.__version__.startswith('2.2.1')" 2>/dev/null; then
   log "Pinned pip packages (torch 2.2.1+cu121, nerfstudio 1.0.2, ...) - this takes a while"
   req="$(mktemp --suffix=.txt)"
-  # take only the '- pip:' section, strip the YAML list markers
-  awk '/^ *- pip:/{f=1;next} f && /^ *- /{sub(/^ *- /,""); print}' "$EYENERF_DIR/environment.yml" > "$req"
+  # take only the '- pip:' section, strip the YAML list markers and any CRLF
+  # (a checkout made by Git for Windows has CRLF line endings)
+  awk '{sub(/\r$/,"")} /^ *- pip:/{f=1;next} f && /^ *- /{sub(/^ *- /,""); print}' "$EYENERF_DIR/environment.yml" > "$req"
+  # av 11.0.0 has no Python 3.8 Linux wheel and its source build needs FFmpeg >= 5 dev
+  # headers (Ubuntu 22.04 ships 4.4). nerfstudio 1.0.2 only needs av>=9.2.0; 12.3.0 has a wheel.
+  sed -i 's/^av==11\.0\.0$/av==12.3.0/' "$req"
   pip install --upgrade "pip<24.1"   # newer pip rejects some legacy metadata in these pins
   pip install -r "$req"
   rm "$req"
@@ -105,10 +114,21 @@ fi
 python -c "import torch; assert torch.cuda.is_available(), 'torch cannot see the GPU'; print('torch', torch.__version__, torch.version.cuda, torch.cuda.get_device_name(0))"
 
 # --- 5. tiny-cuda-nn -------------------------------------------------------------
+# The pinned commit builds its torch bindings with -std=c++14, but torch >= 2.1
+# headers require C++17, so clone it and patch the flag before building.
+mkdir -p "$DEPS_DIR"
 if ! python -c "import tinycudann" 2>/dev/null; then
   log "tiny-cuda-nn (compiling for sm_$GPU_ARCH, ~10-20 min)"
-  TCNN_CUDA_ARCHITECTURES="$GPU_ARCH" pip install --no-build-isolation \
-    "git+https://github.com/NVlabs/tiny-cuda-nn.git@$TCNN_COMMIT#subdirectory=bindings/torch"
+  TCNN_DIR="$DEPS_DIR/tiny-cuda-nn"
+  if [[ ! -d "$TCNN_DIR/.git" ]]; then
+    git clone -q https://github.com/NVlabs/tiny-cuda-nn.git "$TCNN_DIR"
+  fi
+  git -C "$TCNN_DIR" checkout -q -f "$TCNN_COMMIT"
+  git -C "$TCNN_DIR" submodule update -q --init --recursive
+  sed -i 's/std=c++14/std=c++17/; s#/std:c++14#/std:c++17#' "$TCNN_DIR/bindings/torch/setup.py"
+  grep -q 'std=c++17' "$TCNN_DIR/bindings/torch/setup.py" || die "Could not patch tiny-cuda-nn to C++17"
+  TCNN_CUDA_ARCHITECTURES="$GPU_ARCH" pip install --no-build-isolation "$TCNN_DIR/bindings/torch"
+  python -c "import tinycudann" || die "tiny-cuda-nn built but does not import"
 fi
 
 # --- 6. EyeNeRF itself -------------------------------------------------------------
