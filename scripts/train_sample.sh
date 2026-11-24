@@ -37,6 +37,10 @@ DATA_DIR="$(dirname "$(find "$DATA_ROOT/sample" -name transforms_train.json -pri
 echo "==> Dataset: $DATA_DIR"
 
 # --- train (command from eyenerf/README.md) -----------------------------------
+# EyeNeRF opens ./config_hash.json (tiny-cuda-nn network config) relative to the
+# working directory, so training must run from inside eyenerf/.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT/eyenerf"
 echo "==> Training '$EXP' - open http://localhost:7007 to watch"
 ns-train cornea \
   --data "$DATA_DIR" \
