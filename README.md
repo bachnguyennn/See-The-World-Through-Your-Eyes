@@ -23,8 +23,20 @@ git submodule update --init
 Two environments, on purpose: NeRF training (tiny-cuda-nn) and Stable Diffusion
 each want most of the GPU, and their package pins differ.
 
-1. **EyeNeRF** — follow `eyenerf/README.md` (conda env `eyenerf`, CUDA 11.8, tiny-cuda-nn,
-   GroundingDINO, SAM, ExifTool).
+1. **EyeNeRF** (runs in WSL2 — native Windows builds of tiny-cuda-nn/GroundingDINO are fragile):
+   ```powershell
+   # once, in an admin PowerShell, then reboot
+   wsl --install -d Ubuntu-22.04
+   ```
+   ```bash
+   # inside Ubuntu, from the repo root (e.g. /mnt/h/Bach/Bach\ Projects/CV1/See-The-World-Through-Your-Eyes)
+   bash scripts/setup_wsl_eyenerf.sh      # CUDA 12.1 toolkit, conda env "eyenerf", tiny-cuda-nn,
+                                          # nerfstudio 1.0.2, EyeNeRF, SAM, GroundingDINO, ExifTool
+   conda activate eyenerf
+   bash scripts/train_sample.sh           # downloads the authors' sample capture and trains
+   ```
+   Use Ubuntu **22.04** (CUDA 12.1 needs gcc ≤ 12). Keep data/outputs under the WSL home
+   (`~/eyenerf-data`, the default) — `/mnt/h/...` works but is much slower.
 2. **Diffusion**:
    ```bash
    python -m venv .venv-diffusion
