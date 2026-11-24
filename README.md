@@ -11,6 +11,7 @@ Your Eyes", CVPR 2024), with diffusion-based refinement of the reconstructions.
 | `eyenerf/` | Git submodule → our fork [`bachnguyennn/eyenerf`](https://github.com/bachnguyennn/eyenerf) (upstream remote: `hadizayer/eyenerf`). NeRF training. |
 | `diffusion/refine_renders.py` | Stage 1: diffusion post-refinement of rendered views. |
 | `diffusion/evaluate.py` | PSNR / SSIM / LPIPS of NeRF-only vs refined against ground truth. |
+| `eyenerf/eyenerf/diffusion_guidance.py` | Stage 2: diffusion inside training (`ns-train cornea-diffusion`). |
 
 ## Setup
 
@@ -106,9 +107,67 @@ path `2024-06-17_182843`, every 8th frame, prompt describing the scene):
 - **The prompt matters.** Describe what is actually in the scene; generic prompts give generic
   detail.
 - Every frame uses the same `--seed`, which reduces flicker across a camera path, but frames
-  are still refined independently. Multi-view-consistent refinement is the planned Stage 2
-  (diffusion inside NeRF training, Instruct-NeRF2NeRF-style iterative dataset updates).
+  are still refined independently. Stage 2 (below) puts diffusion inside training instead.
 - On a 12 GB GPU both methods fit in fp16; add `--cpu-offload` if you hit out-of-memory.
+
+## Stage 2: diffusion inside training (`cornea-diffusion`)
+
+EyeNeRF's training images are photos of *eyes*, so the Instruct-NeRF2NeRF trick (replace
+training images with diffusion-edited versions) does not apply. Instead
+[`eyenerf/eyenerf/diffusion_guidance.py`](eyenerf/eyenerf/diffusion_guidance.py) supervises the
+scene through **virtual views**:
+
+1. From `--pipeline.guidance-start-step` (default 10000), every `--pipeline.guidance-every`
+   steps (default 5000), render 8 virtual 512 px views of the scene. Cameras are derived
+   automatically from the reflected rays (placed at the corneas, looking along the mean
+   reflected direction) or taken from `--pipeline.guidance-camera-path`.
+2. Refine them with `diffusion/refine_renders.py --method tile` in the diffusion environment
+   (a subprocess: from WSL it runs the Windows `.venv-diffusion` through interop, so no
+   second copy of torch or the model weights is needed).
+3. Every step, add an L1 + LPIPS loss on 32×32 patches of those refined views. The loss is
+   **rescaled every step to `--pipeline.guidance-weight` × the eye-image loss** (default 0.1).
+
+```bash
+# inside WSL, conda activate eyenerf
+METHOD=cornea-diffusion PROMPT="a photo of toys on a table in a dark room" bash scripts/train_sample.sh
+# or directly (from eyenerf/):
+ns-train cornea-diffusion --data $DATA --pipeline.model.rot-loss-mult 0.1 \
+    --pipeline.model.use-texture-field True --pipeline.guidance-weight 0.5 \
+    --pipeline.guidance-prompt "..."
+```
+
+Every round is saved to `<run>/diffusion_guidance/step_XXXXXX/{render,refined}` for inspection.
+Each round takes ~40 s on an RTX 3060 (12 GB), and training + diffusion fit side by side.
+
+### Results on `capture_3`
+
+Fine-tuning the 30k-step baseline for 2500 more steps, with guidance rounds every 500 steps,
+then rendering the authors' camera path (96 frames). There is no ground truth, so these are
+measured against the unguided control run. For scale: plain continued training moves the
+renders by ~49.8 dB (baseline vs control).
+
+| Run | Eye-image PSNR | PSNR vs control | Sharpness* |
+|---|---|---|---|
+| control (no guidance) | 51.08 | – | 2.26 |
+| guidance-weight 0.1 (adaptive) | 52.05 | 49.16 | 2.16 |
+| guidance-weight 0.5 (adaptive) | 52.25 | 47.64 | 2.25 |
+| fixed weights, L1+LPIPS ×0.05 (first attempt) | **36.63** | **31.06** | 2.98 |
+
+\* variance of the Laplacian in the lit region, ×10⁴.
+
+- **Fixed loss weights overwhelm the eye data.** Eye reflections are faint, so the eye-image
+  loss is ~1e-5; a guidance loss weighted 0.05 was ~100× larger. The NeRF then copied the
+  diffusion output: higher "sharpness", but it is invented fur-like texture on the table, a blue
+  cast on the white plush, and background speckle, while the fit to the real eye images
+  dropped 15 dB. That is why the weight is now adaptive.
+- **With adaptive weights, guidance is safe but does not visibly help.** Renders change
+  about as much as continued training alone does, and sharpness is unchanged. The eye fit is
+  unharmed (slightly higher, within noise).
+- **Prompt words become texture.** A prompt mentioning "plush toys" made the refiner paint
+  fur everywhere; keep it to the layout ("toys on a table in a dark room").
+- Takeaway so far: the limit is how much information the eye reflection holds, not the
+  regulariser. Diffusion can only add detail that is not in the data, and in these tests
+  that detail was either too weak to matter or wrong.
 
 ### Honesty check
 

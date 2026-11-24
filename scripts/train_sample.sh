@@ -5,6 +5,11 @@
 #
 # Usage:
 #   CAPTURE=capture_3 bash scripts/train_sample.sh [DATA_ROOT] [EXPERIMENT_NAME]
+#   METHOD=cornea-diffusion PROMPT="two plush toys on a table" bash scripts/train_sample.sh
+#
+# METHOD     cornea (default, EyeNeRF as published) or cornea-diffusion (adds
+#            diffusion-refined virtual views as extra supervision; needs the
+#            diffusion env from the README). PROMPT describes the scene for it.
 #
 # CAPTURE    one of capture_1..capture_6 (default capture_3: the only one with
 #            the authors' camera paths, so it renders without manual setup).
@@ -16,7 +21,8 @@ set -euo pipefail
 
 DATA_ROOT="${1:-$HOME/eyenerf-data}"
 CAPTURE="${CAPTURE:-capture_3}"
-EXP="${2:-$CAPTURE}"
+METHOD="${METHOD:-cornea}"
+EXP="${2:-$CAPTURE$([[ "${METHOD:-cornea}" == cornea ]] || echo "-$METHOD")}"
 RENDER_DOWNSCALE="${RENDER_DOWNSCALE:-2}"   # authors' paths are 1920x1080; 2 -> 960x540
 SAMPLE_GDRIVE_ID="1YMHZUSifun5gA2sKHj8Jiu32dnqFDccr"   # from eyenerf/README.md
 
@@ -50,15 +56,20 @@ echo "==> Dataset: $DATA_DIR"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT/eyenerf"
 echo "==> Training '$EXP' - open http://localhost:7007 to watch"
-ns-train cornea \
+extra=()
+if [[ "$METHOD" == cornea-diffusion && -n "${PROMPT:-}" ]]; then
+  extra+=(--pipeline.guidance-prompt "$PROMPT")
+fi
+ns-train "$METHOD" \
   --data "$DATA_DIR" \
   --output_dir "$DATA_ROOT/outputs" \
   --experiment_name "$EXP" \
   --pipeline.model.rot-loss-mult 0.1 \
   --pipeline.model.use-texture-field True \
-  --viewer.quit-on-train-completion True
+  --viewer.quit-on-train-completion True \
+  "${extra[@]}"
 
-CONFIG="$(ls -td "$DATA_ROOT/outputs/$EXP"/cornea/*/ | head -1)config.yml"
+CONFIG="$(ls -td "$DATA_ROOT/outputs/$EXP/$METHOD"/*/ | head -1)config.yml"
 echo "==> Training finished. Config: $CONFIG"
 
 # --- render the capture's own camera paths, if it has any -----------------------
