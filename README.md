@@ -71,8 +71,8 @@ python diffusion/evaluate.py --gt gt/ --nerf renders/ --refined refined/upscale 
 
 ### Choosing a method
 
-- **`upscale`** (SD x4 upscaler) — first choice for EyeNeRF's small renders. `--noise-level`
-  (default 20) trades faithfulness for invented detail.
+- **`upscale`** (SD x4 upscaler) — **not recommended on real EyeNeRF renders** (see below).
+  `--noise-level` (default 20) trades faithfulness for invented detail.
 - **`tile`** (SD 1.5 + ControlNet Tile, img2img) — keeps the render's layout and re-synthesises
   texture. Keep `--strength` at 0.2–0.4; above ~0.5 it starts painting a new scene. The input
   is blurred slightly first (`--pre-smooth`) because the model otherwise turns render noise into
@@ -90,7 +90,19 @@ Smoke test (128×96 noisy/blurred synthetic "renders" vs 512×384 ground truth, 
 | `tile`, strength 0.65 | 21.54 | **0.492** | 0.544 |
 
 `upscale` looks by far the sharpest but invents the most (lowest PSNR); `tile` at low strength
-is the most faithful. Real EyeNeRF renders will behave differently — rerun `evaluate.py` on them.
+is the most faithful.
+
+**On real EyeNeRF renders** (sample `capture_3`: two plush toys on a table, authors' camera
+path `2024-06-17_182843`, every 8th frame, prompt describing the scene):
+
+- `tile`, strength 0.3 — **use this.** Keeps the layout and both objects in place, sharpens the
+  white plush; but it gives the table a fur texture (borrowed from the "plush" prompt) and
+  leaves the orange toy blurry.
+- `upscale` — unusable as is. The renders are mostly black with a small lit region, so after
+  downscaling to 256 px the content is tiny and the model invents a different picture (frame 0
+  became a close-up of a fur object). Frames also disagree with each other → flicker.
+- The sample captures ship no ground-truth scene photo, so these are visual comparisons only.
+  Per-frame inconsistency is the main argument for Stage 2 (diffusion inside NeRF training).
 - **The prompt matters.** Describe what is actually in the scene; generic prompts give generic
   detail.
 - Every frame uses the same `--seed`, which reduces flicker across a camera path, but frames
