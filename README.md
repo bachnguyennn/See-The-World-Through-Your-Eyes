@@ -165,9 +165,20 @@ renders by ~49.8 dB (baseline vs control).
   unharmed (slightly higher, within noise).
 - **Prompt words become texture.** A prompt mentioning "plush toys" made the refiner paint
   fur everywhere; keep it to the layout ("toys on a table in a dark room").
-- Takeaway so far: the limit is how much information the eye reflection holds, not the
-  regulariser. Diffusion can only add detail that is not in the data, and in these tests
-  that detail was either too weak to matter or wrong.
+**Full training from scratch** (`cornea-diffusion`, weight 0.5, strength 0.25, rounds at
+10k/15k/20k/25k, ~40 s each): eye-image PSNR 51.11 (unguided: ~51), sharpness 2.52 vs 2.14
+for the baseline. Visually, the white plush's ears and eye spot are more defined and the
+table has more structure. But the table also gets streaky wood-grain-like texture and the
+background gets speckle, both probably invented, and the orange toy shifts to a paler tan.
+Render-to-render difference vs the baseline is 31.4 dB, but part of that is ordinary
+run-to-run variation (different random init). A second unguided run would be needed to
+separate the two.
+
+- Takeaway: the limit is how much information the eye reflection holds, not the
+  regulariser. Diffusion can only add detail that is not in the data. Weak guidance changes
+  nothing; stronger guidance adds detail that is partly plausible and partly invented, and
+  without a ground-truth photo of the scene there is no way to tell which is which. A capture
+  with a reference photo (then `diffusion/evaluate.py`) is the next step to settle it.
 
 ### Honesty check
 
